@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { FolderOpen, Image, FileText, Trash2, Share, Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 
 interface GalleryItem {
   id: string;
@@ -16,7 +17,7 @@ interface GalleryItem {
 }
 
 const FileGallery = () => {
-  const [galleryItems] = useState<GalleryItem[]>([
+  const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([
     {
       id: '1',
       name: 'Front View - Truck ABC123',
@@ -53,10 +54,6 @@ const FileGallery = () => {
 
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'inspection' | 'document'>('all');
 
-  const filteredItems = galleryItems.filter(item => 
-    selectedCategory === 'all' || item.category === selectedCategory
-  );
-
   const formatTimeAgo = (date: Date) => {
     const now = new Date();
     const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
@@ -69,6 +66,48 @@ const FileGallery = () => {
       return `${Math.floor(diffInMinutes / 1440)}d ago`;
     }
   };
+
+  const deleteFile = (itemId: string) => {
+    setGalleryItems(prev => prev.filter(item => item.id !== itemId));
+    toast({
+      title: "File Deleted",
+      description: "File removed successfully",
+    });
+  };
+
+  const downloadFile = (item: GalleryItem) => {
+    // Simulate download
+    toast({
+      title: "Download Started",
+      description: `${item.name} download initiated`,
+    });
+  };
+
+  const shareFile = (item: GalleryItem) => {
+    if (navigator.share) {
+      navigator.share({
+        title: item.name,
+        text: `Sharing ${item.name}`,
+        url: window.location.href,
+      });
+    } else {
+      toast({
+        title: "Share",
+        description: `Share functionality for ${item.name}`,
+      });
+    }
+  };
+
+  const viewFile = (item: GalleryItem) => {
+    toast({
+      title: "View File",
+      description: `Opening ${item.name}`,
+    });
+  };
+
+  const filteredItems = galleryItems.filter(item => 
+    selectedCategory === 'all' || item.category === selectedCategory
+  );
 
   return (
     <div className="max-w-md mx-auto p-4 space-y-6">
@@ -141,15 +180,30 @@ const FileGallery = () => {
                   
                   {/* Actions */}
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="h-8 px-3">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="h-8 px-3"
+                      onClick={() => viewFile(item)}
+                    >
                       <Eye className="h-3 w-3 mr-1" />
                       View
                     </Button>
-                    <Button size="sm" variant="outline" className="h-8 px-3">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="h-8 px-3"
+                      onClick={() => shareFile(item)}
+                    >
                       <Share className="h-3 w-3 mr-1" />
                       Share
                     </Button>
-                    <Button size="sm" variant="outline" className="h-8 px-3 text-destructive hover:text-destructive">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="h-8 px-3 text-destructive hover:text-destructive"
+                      onClick={() => deleteFile(item.id)}
+                    >
                       <Trash2 className="h-3 w-3" />
                     </Button>
                   </div>

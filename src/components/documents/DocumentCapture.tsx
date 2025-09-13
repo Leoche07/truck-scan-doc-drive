@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CameraButton } from '@/components/ui/camera-button';
 import { Badge } from '@/components/ui/badge';
-import { Camera, FileText, Download, Upload, Scan } from 'lucide-react';
+import { Camera, FileText, Download, Upload, Scan, RotateCcw, X } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface CapturedDocument {
@@ -16,6 +16,11 @@ interface CapturedDocument {
 }
 
 const DocumentCapture = () => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  
   const [documents, setDocuments] = useState<CapturedDocument[]>([]);
   const [currentCapture, setCurrentCapture] = useState<{
     type: string;
@@ -30,27 +35,81 @@ const DocumentCapture = () => {
     { id: 'other', name: 'Other Document', icon: FileText },
   ];
 
+  const startCamera = useCallback(async () => {
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        } 
+      });
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+        videoRef.current.play();
+      }
+      
+      setStream(mediaStream);
+      setCameraActive(true);
+    } catch (error) {
+      console.error('Error accessing camera:', error);
+      toast({
+        title: "Camera Access Denied",
+        description: "Please allow camera access to scan documents",
+        variant: "destructive",
+      });
+    }
+  }, []);
+
+  const stopCamera = useCallback(() => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+    setCameraActive(false);
+  }, [stream]);
+
   const startCapture = (type: string, name: string) => {
     setCurrentCapture({
       type,
       name,
       photos: []
     });
+    startCamera();
   };
 
-  const capturePhoto = () => {
-    if (!currentCapture) return;
-    
-    const newPhoto = `photo-${Date.now()}`;
+  const capturePhoto = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current || !currentCapture) return;
+
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    const context = canvas.getContext('2d');
+
+    if (context) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0);
+      
+      const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      
+      setCurrentCapture(prev => prev ? {
+        ...prev,
+        photos: [...prev.photos, imageDataUrl]
+      } : null);
+      
+      toast({
+        title: "Page Captured",
+        description: `Page ${currentCapture.photos.length + 1} captured successfully`,
+      });
+    }
+  }, [currentCapture]);
+
+  const removePhoto = (index: number) => {
     setCurrentCapture(prev => prev ? {
       ...prev,
-      photos: [...prev.photos, newPhoto]
+      photos: prev.photos.filter((_, i) => i !== index)
     } : null);
-    
-    toast({
-      title: "Photo Captured",
-      description: `Page ${currentCapture.photos.length + 1} captured`,
-    });
   };
 
   const finishCapture = () => {
@@ -67,6 +126,7 @@ const DocumentCapture = () => {
     
     setDocuments(prev => [newDocument, ...prev]);
     setCurrentCapture(null);
+    stopCamera();
     
     // Simulate PDF generation
     setTimeout(() => {
@@ -83,6 +143,30 @@ const DocumentCapture = () => {
         description: `${newDocument.name} converted to PDF successfully`,
       });
     }, 2000);
+  };
+
+  const downloadDocument = (doc: CapturedDocument) => {
+    if (doc.photos.length === 1) {
+      // Single image download
+      const link = document.createElement('a');
+      link.download = `${doc.name.replace(/\s+/g, '_')}_${Date.now()}.jpg`;
+      link.href = doc.photos[0];
+      link.click();
+    } else {
+      // Multiple images - would need PDF generation library in real app
+      toast({
+        title: "Download Started",
+        description: `${doc.name} PDF download would start here`,
+      });
+    }
+  };
+
+  const deleteDocument = (docId: string) => {
+    setDocuments(prev => prev.filter(doc => doc.id !== docId));
+    toast({
+      title: "Document Deleted",
+      description: "Document removed successfully",
+    });
   };
 
   return (
@@ -108,15 +192,34 @@ const DocumentCapture = () => {
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="aspect-[3/4] bg-muted rounded-lg flex items-center justify-center">
-              <Camera className="h-12 w-12 text-muted-foreground" />
-            </div>
+            {cameraActive ? (
+              <div className="relative aspect-[3/4] bg-black rounded-lg overflow-hidden">
+                <video
+                  ref={videoRef}
+                  className="w-full h-full object-cover"
+                  autoPlay
+                  playsInline
+                  muted
+                />
+                <canvas ref={canvasRef} className="hidden" />
+              </div>
+            ) : (
+              <div className="aspect-[3/4] bg-muted rounded-lg flex items-center justify-center">
+                <Camera className="h-12 w-12 text-muted-foreground" />
+              </div>
+            )}
             
             {currentCapture.photos.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {currentCapture.photos.map((photo, index) => (
-                  <div key={photo} className="w-16 h-20 bg-secondary rounded flex items-center justify-center">
-                    <span className="text-xs">{index + 1}</span>
+                  <div key={index} className="relative w-16 h-20 bg-secondary rounded overflow-hidden">
+                    <img src={photo} alt={`Page ${index + 1}`} className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => removePhoto(index)}
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-white rounded-full flex items-center justify-center text-xs"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -125,20 +228,25 @@ const DocumentCapture = () => {
             <div className="flex gap-3 justify-center">
               <Button 
                 variant="outline" 
-                onClick={() => setCurrentCapture(null)}
+                onClick={() => {
+                  stopCamera();
+                  setCurrentCapture(null);
+                }}
               >
                 Cancel
               </Button>
-              <CameraButton 
-                variant="capture" 
-                size="lg"
-                onClick={capturePhoto}
-              >
-                <Camera className="h-6 w-6" />
-              </CameraButton>
+              {cameraActive && (
+                <CameraButton 
+                  variant="capture" 
+                  size="lg"
+                  onClick={capturePhoto}
+                >
+                  <Camera className="h-6 w-6" />
+                </CameraButton>
+              )}
               {currentCapture.photos.length > 0 && (
                 <Button onClick={finishCapture}>
-                  Finish
+                  Finish ({currentCapture.photos.length})
                 </Button>
               )}
             </div>
@@ -198,14 +306,46 @@ const DocumentCapture = () => {
                     </div>
                   </div>
                   
+                  {/* Photo Preview */}
+                  {doc.photos.length > 0 && (
+                    <div className="flex gap-2 mb-3 overflow-x-auto">
+                      {doc.photos.slice(0, 3).map((photo, index) => (
+                        <img 
+                          key={index}
+                          src={photo} 
+                          alt={`Page ${index + 1}`}
+                          className="w-12 h-16 object-cover rounded flex-shrink-0"
+                        />
+                      ))}
+                      {doc.photos.length > 3 && (
+                        <div className="w-12 h-16 bg-muted rounded flex items-center justify-center text-xs">
+                          +{doc.photos.length - 3}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="flex-1">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="flex-1"
+                      onClick={() => downloadDocument(doc)}
+                    >
                       <Download className="h-4 w-4 mr-2" />
                       Download
                     </Button>
                     <Button size="sm" className="flex-1">
                       <Upload className="h-4 w-4 mr-2" />
                       Upload
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => deleteDocument(doc.id)}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <X className="h-4 w-4" />
                     </Button>
                   </div>
                 </CardContent>
